@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@android:drawable/ic_menu_mylocation"
+        android:label="MockPilot Guard"
+        android:supportsRtl="true">
+
+        <!-- LSPosed / Xposed module markers -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Hides mock-location flags from selected apps (MockPilot companion). For authorized testing on your own device." />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+
+        <activity
+            android:name=".ui.ScopeActivity"
+            android:exported="true"
+            android:label="MockPilot Guard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.DetectionLogActivity"
+            android:exported="false"
+            android:label="Detection log" />
+
+        <!-- Receives detection reports broadcast from hooked processes -->
+        <receiver
+            android:name=".DetectionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mockpilot.xposed.DETECTION" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MockPilot</string>
+    <string name="notif_channel_name">Mock location</string>
+    <string name="notif_channel_desc">Ongoing simulated GPS emission</string>
+    <string name="notif_title">MockPilot active</string>
+</resources>
