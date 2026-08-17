@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MockPilot GPX Studio</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0e1512; --panel: #16211c; --line: #26382f; --ink: #e8f2ec;
+    --muted: #9db3a8; --green: #39d98a; --green2: #2e7d5b; --warn: #ffcc66; --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
+  header { display: flex; gap: 8px; align-items: center; padding: 10px 12px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; white-space: nowrap; }
+  header h1 span { color: var(--green); }
+  #search { flex: 1; min-width: 160px; padding: 9px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: #0c1310; color: var(--ink); font-size: 14px; }
+  button { cursor: pointer; border: 1px solid var(--line); background: #1d2c25; color: var(--ink);
+    padding: 9px 12px; border-radius: 10px; font-size: 14px; }
+  button.primary { background: var(--green); color: #06130d; border-color: var(--green); font-weight: 700; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  #map { width: 100%; height: 100%; }
+  #panel { border-top: 1px solid var(--line); background: var(--panel); padding: 12px;
+    display: grid; gap: 12px; grid-template-columns: 1fr 1fr; max-height: 46vh; overflow: auto; }
+  .full { grid-column: 1 / -1; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: transparent; }
+  .seg button.on { background: var(--green2); color: #fff; }
+  label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--green); }
+  .val { color: var(--ink); font-weight: 600; }
+  .card { background: #0c1310; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .readout { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; }
+  .muted { color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); }
+  details { grid-column: 1 / -1; background: #0c1310; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details ol { margin: 8px 0; padding-left: 20px; line-height: 1.6; font-size: 13px; }
+  code { background: #10201a; padding: 1px 6px; border-radius: 6px; }
+  .warn { color: var(--warn); }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #10201a; border: 1px solid var(--line); color: var(--muted); }
+  #results { position: absolute; z-index: 1000; top: 6px; left: 6px; right: 6px; max-height: 40vh;
+    overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: none; }
+  #results div { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  #results div:hover { background: #1d2c25; cursor: pointer; }
+  .maprap { position: relative; }
+  @media (max-width: 640px) { #panel { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Mock<span>Pilot</span> · GPX Studio</h1>
+    <input id="search" placeholder="Search a place (e.g. Santorini, Malibu Pier)…" />
+    <button id="searchBtn">Search</button>
+    <span class="pill" id="mode-pill">Park mode</span>
+  </header>
+
+  <div class="maprap">
+    <div id="map"></div>
+    <div id="results"></div>
+  </div>
+
+  <div id="panel">
+    <div class="row full">
+      <div class="seg" id="modeSeg">
+        <button data-mode="park" class="on">📍 Park at a spot</button>
+        <button data-mode="route">🛣️ Route</button>
+      </div>
+      <button id="clearBtn" class="ghost">Clear</button>
+      <span class="hint" id="tapHint">Tap the map to set where you "are".</span>
+    </div>
+
+    <!-- Park controls -->
+    <div id="parkControls" class="card">
+      <label class="field">Dwell (how long you stay): <span class="val" id="dwellVal">30 min</span>
+        <input id="dwell" type="range" min="1" max="180" value="30" />
+      </label>
+      <div class="row" style="margin-top:8px">
+        <button id="setStartBtn" class="ghost">Set "travel from" start…</button>
+        <span class="hint" id="startHint">Optional: arrive naturally instead of teleporting.</span>
+      </div>
+    </div>
+
+    <!-- Route controls -->
+    <div id="routeControls" class="card" style="display:none">
+      <label class="field">Speed: <span class="val" id="speedVal">8 m/s · 29 km/h</span>
+        <input id="speed" type="range" min="1" max="33" value="8" />
+      </label>
+      <label class="row" style="margin-top:8px; gap:6px">
+        <input id="loop" type="checkbox" /> Loop the route
+      </label>
+      <div class="hint" style="margin-top:6px">Tap to add waypoints in order.</div>
+    </div>
+
+    <label class="field full">Realism jitter: <span class="val" id="jitterVal">normal</span>
+      <input id="jitter" type="range" min="1" max="10" value="5" />
+    </label>
+
+    <div class="row full">
+      <button id="previewBtn">▶ Preview</button>
+      <button id="stopBtn" class="ghost" disabled>■ Stop</button>
+      <button id="exportBtn" class="primary">⬇ Export .gpx</button>
+      <span class="hint" id="statusHint"></span>
+    </div>
+
+    <div class="card readout full" id="readout">
+      <span class="muted">No track yet.</span> Drop a pin (or waypoints), then Preview or Export.
+    </div>
+
+    <details>
+      <summary>How to use the .gpx (Mac / Windows) — and the honest caveats</summary>
+      <p class="hint" style="margin-top:8px"><b>Mac · Xcode (free):</b></p>
+      <ol>
+        <li>Make a throwaway Xcode project (any "App" template) and run it once on your iPhone (plugged in, Developer Mode on).</li>
+        <li>Drag <code>mockpilot.gpx</code> into the project.</li>
+        <li>Run on the device, then in the debug bar's location dropdown (or <b>Debug ▸ Simulate Location</b>) pick <code>mockpilot</code>. iOS now reports the moving track device-wide.</li>
+      </ol>
+      <p class="hint"><b>Windows · desktop tool:</b> 3uTools (free) has a "Virtual Location" feature; iToolab AnyGo / Dr.Fone (paid) import a route/GPX. Plug the iPhone in and load the file.</p>
+      <p class="warn" style="font-size:13px">⚠️ Reality check: <b>Snap Map</b> generally just shows whatever location the device reports, so this works for it. <b>Life360</b> actively tries to detect spoofing and can show your circle a "location may be inaccurate" flag — realism helps it look human and avoids the teleport tell, but it can't guarantee Life360's dedicated detection won't catch the developer-image spoofing. Use on your own device.</p>
+    </details>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ---------------- Geo helpers (mirror of the Kotlin GeoPoint math) ---------------- */
+const R = 6371000, D2R = Math.PI/180, R2D = 180/Math.PI;
+function distance(a, b){
+  const dLat=(b.lat-a.lat)*D2R, dLon=(b.lon-a.lon)*D2R;
+  const s=Math.sin(dLat/2)**2 + Math.cos(a.lat*D2R)*Math.cos(b.lat*D2R)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+function bearing(a, b){
+  const y=Math.sin((b.lon-a.lon)*D2R)*Math.cos(b.lat*D2R);
+  const x=Math.cos(a.lat*D2R)*Math.sin(b.lat*D2R)-Math.sin(a.lat*D2R)*Math.cos(b.lat*D2R)*Math.cos((b.lon-a.lon)*D2R);
+  return (Math.atan2(y,x)*R2D+360)%360;
+}
+function destination(p, distM, brgDeg){
+  const d=distM/R, t=brgDeg*D2R, lat1=p.lat*D2R, lon1=p.lon*D2R;
+  const sinLat2=Math.sin(lat1)*Math.cos(d)+Math.cos(lat1)*Math.sin(d)*Math.cos(t);
+  const lat2=Math.asin(sinLat2);
+  const lon2=lon1+Math.atan2(Math.sin(t)*Math.sin(d)*Math.cos(lat1), Math.cos(d)-Math.sin(lat1)*sinLat2);
+  return { lat: lat2*R2D, lon: ((lon2*R2D+540)%360)-180 };
+}
+/* Box–Muller gaussian */
+let _spare=null;
+function gauss(){
+  if(_spare!==null){const s=_spare;_spare=null;return s;}
+  let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
+  const m=Math.sqrt(-2*Math.log(u)); _spare=m*Math.sin(2*Math.PI*v); return m*Math.cos(2*Math.PI*v);
+}
+const clamp=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
+
+/* ---------------- Realism engine (ported from RealismEngine.kt) ---------------- */
+// Stationary Ornstein–Uhlenbeck wander -> array of samples (1 sample / dt seconds).
+function stationaryTrack(center, seconds, dt, jitterScale){
+  const theta=0.05, sigma=1.3*jitterScale, leash=8*jitterScale;
+  let east=0, north=0, phase=Math.random()*2*Math.PI, lastBrg=Math.random()*360;
+  const out=[];
+  for(let t=0;t<seconds;t+=dt){
+    east += -theta*east*dt + sigma*Math.sqrt(dt)*gauss();
+    north += -theta*north*dt + sigma*Math.sqrt(dt)*gauss();
+    const r=Math.hypot(east,north);
+    if(r>leash){ east*=leash/r; north*=leash/r; }
+    const radius=Math.hypot(east,north), brg=(Math.atan2(east,north)*R2D+360)%360;
+    const pt=destination(center, radius, brg);
+    phase+=dt*0.15;
+    const acc=clamp(11+6*Math.sin(phase)+gauss()*1.2, 5, 20);
+    if(radius>0.5) lastBrg=brg;
+    out.push({ lat:pt.lat, lon:pt.lon, t, speed:Math.max(0,0.15+gauss()*0.1), bearing:lastBrg, acc });
+  }
+  return out;
+}
+// Route with accel/decel + cornering + noise -> 1 Hz samples.
+function routeTrack(waypoints, targetSpeed, loop, jitterScale){
+  const pts=waypoints.filter((p,i)=> i===0 || distance(p,waypoints[i-1])>0.5);
+  if(pts.length<2) return [];
+  const cum=[0]; for(let i=1;i<pts.length;i++) cum[i]=cum[i-1]+distance(pts[i-1],pts[i]);
+  const total=cum[cum.length-1];
+  const maxAccel=1.4, maxDecel=2.2;
+  let traveled=0, speed=0, lastBrg=bearing(pts[0],pts[1]), t=0;
+  const out=[]; const laps = loop ? 2 : 1; let guard=0;
+  const segFor=s=>{let seg=0; while(seg<pts.length-2 && cum[seg+1]<s) seg++; return seg;};
+  const cornerLimit=s=>{
+    const seg=segFor(s); if(seg+2>=pts.length) return targetSpeed;
+    let turn=Math.abs(bearing(pts[seg+1],pts[seg+2])-bearing(pts[seg],pts[seg+1]))%360;
+    if(turn>180) turn=360-turn;
+    const distToTurn=cum[seg+1]-s, zone=25;
+    if(distToTurn>zone) return targetSpeed;
+    const cornerMax=Math.max(1.5, targetSpeed*(1-turn/200));
+    return cornerMax+(targetSpeed-cornerMax)*clamp(distToTurn/zone,0,1);
+  };
+  let finished=false, lap=0;
+  while(!finished && guard++<200000){
+    const dt=1;
+    const distToEnd=total-traveled;
+    const stopDist=(speed*speed)/(2*maxDecel)+0.5;
+    let desired=Math.min(targetSpeed, cornerLimit(traveled));
+    if(!loop && distToEnd<=stopDist) desired=0;
+    speed = desired>speed ? Math.min(desired,speed+maxAccel*dt) : Math.max(desired,speed-maxDecel*dt);
+    speed = Math.max(0, speed+gauss()*0.15*dt);
+    traveled += speed*dt; t+=dt;
+    if(traveled>=total){ if(loop){ traveled-=total; if(++lap>=laps){finished=true;} } else { traveled=total; finished=true; } }
+    const seg=segFor(traveled), a=pts[seg], b=pts[seg+1];
+    const f=clamp((traveled-cum[seg])/Math.max(0.0001,cum[seg+1]-cum[seg]),0,1);
+    const base={ lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f };
+    const brg=bearing(a,b);
+    const along=gauss()*1.2*jitterScale, cross=gauss()*1.8*jitterScale;
+    let noisy=destination(base, Math.abs(along), along>=0?brg:(brg+180)%360);
+    noisy=destination(noisy, Math.abs(cross), (brg+(cross>=0?90:270))%360);
+    if(speed>0.4) lastBrg=(brg+gauss()*3+360)%360;
+    const acc=clamp(7+4*Math.sin(traveled*0.02)+gauss(),4,15);
+    out.push({ lat:noisy.lat, lon:noisy.lon, t, speed, bearing:lastBrg, acc });
+  }
+  return out;
+}
+
+/* ---------------- Build the full track from current UI state ---------------- */
+function buildTrack(){
+  const jitterScale = 0.4 + (parseInt(jitter.value)-1)/9 * 1.4; // ~0.4 .. 1.8
+  if(state.mode==='route'){
+    if(state.waypoints.length<2) return [];
+    return routeTrack(state.waypoints, parseInt(speed.value), loop.checked, jitterScale);
+  }
+  // Park mode: optional travel-in leg, then dwell with jitter.
+  if(!state.park) return [];
+  let track=[];
+  if(state.start){
+    track = routeTrack([state.start, state.park], 8, false, jitterScale);
+  }
+  const dwellSec = parseInt(dwell.value)*60;
+  // Keep the GPX to a sane size: pick an interval so dwell stays under ~2500 points.
+  const dt = Math.max(1, Math.ceil(dwellSec/2500));
+  const base = track.length ? track[track.length-1].t : 0;
+  const park = stationaryTrack(state.park, dwellSec, dt, jitterScale);
+  park.forEach(s=> track.push({ ...s, t: base + s.t }));
+  return track;
+}
+
+/* ---------------- GPX (Xcode-compatible) ---------------- */
+function toGpx(track){
+  const start = Date.UTC(2024,0,1,12,0,0);
+  const wpts = track.map(s=>{
+    const iso = new Date(start + s.t*1000).toISOString().replace('.000','');
+    return `  <wpt lat="${s.lat.toFixed(6)}" lon="${s.lon.toFixed(6)}">\n`
+         + `    <time>${iso}</time>\n`
+         + `  </wpt>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n`
+       + `<gpx version="1.1" creator="MockPilot GPX Studio" xmlns="http://www.topografix.com/GPX/1/1">\n`
+       + `${wpts}\n</gpx>\n`;
+}
+function download(name, text){
+  const blob=new Blob([text],{type:'application/gpx+xml'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a);
+  a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+/* ---------------- Map + UI ---------------- */
+const map = L.map('map', { zoomControl:true }).setView([36.393, 25.461], 12); // Santorini default
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap'
+}).addTo(map);
+
+const state = { mode:'park', park:null, start:null, waypoints:[], settingStart:false };
+let markers=[], startMarker=null, trackLine=null, previewDot=null, previewTimer=null;
+
+function refreshMarkers(){
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  if(state.mode==='park' && state.park){
+    markers.push(L.marker([state.park.lat,state.park.lon]).addTo(map).bindTooltip('Here'));
+  }
+  if(state.mode==='route'){
+    state.waypoints.forEach((p,i)=> markers.push(
+      L.marker([p.lat,p.lon]).addTo(map).bindTooltip('WP '+(i+1))));
+    if(trackLine){ map.removeLayer(trackLine); trackLine=null; }
+    if(state.waypoints.length>=2){
+      trackLine=L.polyline(state.waypoints.map(p=>[p.lat,p.lon]),{color:'#39d98a',weight:3}).addTo(map);
+    }
+  }
+  if(startMarker){ map.removeLayer(startMarker); startMarker=null; }
+  if(state.start){ startMarker=L.marker([state.start.lat,state.start.lon]).addTo(map).bindTooltip('Start'); }
+}
+
+map.on('click', e=>{
+  const p={ lat:e.latlng.lat, lon:e.latlng.lng };
+  if(state.settingStart){ state.start=p; state.settingStart=false; startHint.textContent='Start set — will travel in from here.'; refreshMarkers(); return; }
+  if(state.mode==='park'){ state.park=p; } else { state.waypoints.push(p); }
+  refreshMarkers();
+});
+
+/* Mode switch */
+document.querySelectorAll('#modeSeg button').forEach(b=> b.onclick=()=>{
+  document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  state.mode=b.dataset.mode;
+  parkControls.style.display = state.mode==='park'?'block':'none';
+  routeControls.style.display = state.mode==='route'?'block':'none';
+  document.getElementById('mode-pill').textContent = state.mode==='park'?'Park mode':'Route mode';
+  tapHint.textContent = state.mode==='park' ? 'Tap the map to set where you "are".' : 'Tap to add waypoints in order.';
+  refreshMarkers();
+});
+
+/* Sliders */
+const speed=document.getElementById('speed'), dwell=document.getElementById('dwell'),
+      jitter=document.getElementById('jitter'), loop=document.getElementById('loop');
+speed.oninput=()=> speedVal.textContent = `${speed.value} m/s · ${Math.round(speed.value*3.6)} km/h`;
+dwell.oninput=()=> dwellVal.textContent = `${dwell.value} min`;
+jitter.oninput=()=> jitterVal.textContent = ['very tight','tight','tight','calm','normal','normal','loose','loose','wide','wide'][jitter.value-1];
+
+document.getElementById('setStartBtn').onclick=()=>{ state.settingStart=true; startHint.textContent='Now tap the map to place your start…'; };
+document.getElementById('clearBtn').onclick=()=>{
+  state.park=null; state.start=null; state.waypoints=[]; stopPreview();
+  readout.innerHTML='<span class="muted">Cleared.</span>'; refreshMarkers();
+};
+
+/* Search (Nominatim) */
+const results=document.getElementById('results');
+async function doSearch(){
+  const q=document.getElementById('search').value.trim(); if(!q) return;
+  results.style.display='block'; results.innerHTML='<div class="muted">Searching…</div>';
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q='+encodeURIComponent(q),
+      { headers:{'Accept':'application/json'} });
+    const data=await r.json();
+    if(!data.length){ results.innerHTML='<div class="muted">No matches.</div>'; return; }
+    results.innerHTML='';
+    data.forEach(d=>{
+      const el=document.createElement('div'); el.textContent=d.display_name;
+      el.onclick=()=>{ map.setView([+d.lat,+d.lon],14); results.style.display='none';
+        document.getElementById('search').value=d.display_name.split(',')[0]; };
+      results.appendChild(el);
+    });
+  }catch(err){ results.innerHTML='<div class="muted">Search failed (need internet).</div>'; }
+}
+document.getElementById('searchBtn').onclick=doSearch;
+document.getElementById('search').addEventListener('keydown',e=>{ if(e.key==='Enter') doSearch(); });
+
+/* Preview animation */
+function stopPreview(){
+  if(previewTimer){ clearInterval(previewTimer); previewTimer=null; }
+  if(previewDot){ map.removeLayer(previewDot); previewDot=null; }
+  document.getElementById('stopBtn').disabled=true;
+}
+function preview(){
+  const track=buildTrack();
+  if(!track.length){ statusHint.textContent='Set a spot (or 2+ waypoints) first.'; return; }
+  stopPreview();
+  if(trackLine && state.mode==='park'){ map.removeLayer(trackLine); trackLine=null; }
+  const line=L.polyline(track.map(s=>[s.lat,s.lon]),{color:'#2e7d5b',weight:2,opacity:.7}).addTo(map);
+  trackLine=line;
+  previewDot=L.circleMarker([track[0].lat,track[0].lon],{radius:7,color:'#fff',fillColor:'#39d98a',fillOpacity:1}).addTo(map);
+  document.getElementById('stopBtn').disabled=false;
+  map.fitBounds(line.getBounds(),{padding:[40,40]});
+  let i=0; const step=Math.max(1, Math.floor(track.length/300)); // finish in ~15s
+  previewTimer=setInterval(()=>{
+    if(i>=track.length){ stopPreview(); statusHint.textContent='Preview done.'; return; }
+    const s=track[i]; previewDot.setLatLng([s.lat,s.lon]);
+    readout.innerHTML =
+      `<div class="readout">`+
+      `lat/lon &nbsp;<span class="val">${s.lat.toFixed(6)}, ${s.lon.toFixed(6)}</span><br>`+
+      `speed <span class="val">${s.speed.toFixed(1)} m/s</span> &nbsp; `+
+      `bearing <span class="val">${Math.round(s.bearing)}°</span> &nbsp; `+
+      `±acc <span class="val">${s.acc.toFixed(1)} m</span> &nbsp; `+
+      `t+<span class="val">${s.t}s</span><br>`+
+      `<span class="muted">${track.length} points · ${Math.round(track[track.length-1].t/60)} min of track</span>`+
+      `</div>`;
+    i+=step;
+  }, 50);
+}
+document.getElementById('previewBtn').onclick=preview;
+document.getElementById('stopBtn').onclick=()=>{ stopPreview(); statusHint.textContent='Stopped.'; };
+
+/* Export */
+document.getElementById('exportBtn').onclick=()=>{
+  const track=buildTrack();
+  if(!track.length){ statusHint.textContent='Nothing to export — set a spot or waypoints.'; return; }
+  download('mockpilot.gpx', toGpx(track));
+  statusHint.textContent = `Exported ${track.length} points → mockpilot.gpx`;
+};
+
+refreshMarkers();
+</script>
+</body>
+</html>

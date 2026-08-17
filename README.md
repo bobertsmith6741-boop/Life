@@ -18,6 +18,19 @@ It ships in two parts:
 > to test. Spoofing location to defraud a service, evade court-ordered monitoring, or violate an
 > app's terms may be illegal. You are responsible for how you use it.
 
+### iOS note & `web/` GPX Studio
+
+iOS has **no mock-location API**, so the Android app above can't run there and no on-device iOS app
+can spoof system location for other apps. On iOS the only working paths are **Xcode ▸ Simulate
+Location** (Mac, free) or a tethered desktop spoofer (Windows/Mac). Those consume a **GPX** route.
+
+`web/index.html` is a self-contained **GPX Studio** for that workflow: open it in any desktop
+browser (needs internet for the map/search), drop a pin or draw a route, and it exports a realistic
+`mockpilot.gpx` — the same realism engine (Ornstein–Uhlenbeck jitter when parked, accel/decel/
+cornering when moving, no teleport) rendered as dense, correctly-timed waypoints — that you load into
+Xcode or a desktop tool. Snap Map reflects it; **Life360 actively detects spoofing** and may flag it
+regardless of realism.
+
 ---
 
 ## Building
